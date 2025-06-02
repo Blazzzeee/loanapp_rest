@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .serializers import CustomerRegisterSerializer, LoanDetailsSerializer
+from .serializers import CustomerRegisterSerializer, LoanDetailsSerializer,LoanSummarySerializer
 from loanapp.models import Customer, Loan
 from datetime import datetime
 from .utils import calculate_credit_score, calculate_emi  
@@ -208,3 +208,14 @@ class LoanDetailView(APIView):
 
         serializer = LoanDetailsSerializer(loan)
         return Response(serializer.data)
+
+
+class CustomerLoansView(APIView):
+    def get(self, request, customer_id):
+        loans = Loan.objects.filter(customer__customer_id=customer_id, loan_approved=True)
+
+        if not loans.exists():
+            return Response({"detail": "No approved loans found for this customer."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = LoanSummarySerializer(loans, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
