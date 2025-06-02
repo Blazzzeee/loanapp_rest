@@ -1,9 +1,10 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .serializers import CustomerRegisterSerializer
+from .serializers import CustomerRegisterSerializer, LoanDetailsSerializer
 from loanapp.models import Customer, Loan
 from datetime import datetime
+from .utils import calculate_credit_score, calculate_emi  
 import math
 
 
@@ -119,3 +120,91 @@ class CheckEligibilityView(APIView):
         r = rate / (12 * 100)
         emi = principal * r * (math.pow(1 + r, tenure_months)) / (math.pow(1 + r, tenure_months) - 1)
         return round(emi, 2)
+
+
+
+
+class CreateLoanView(APIView):
+    def post(self, request):
+        data = request.data
+        customer_id = data.get('customer_id')
+        loan_amount = float(data.get('loan_amount'))
+        interest_rate = float(data.get('interest_rate'))
+        tenure = int(data.get('tenure'))
+
+        try:
+            customer = Customer.objects.get(customer_id=customer_id)
+        except Customer.DoesNotExist:
+            return Response({
+                "loan_id": None,
+                "customer_id": customer_id,
+                "loan_approved": False,
+                "message": "Customer not found.",
+                "monthly_installment": None
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Run credit score logic (same as check-eligibility)
+        credit_score = calculate_credit_score(customer_id)
+        approved_limit = customer.approved_limit
+
+        if customer.current_debt > approved_limit:
+            reason = "Customer's current debt exceeds approved limit."
+            approved = False
+        elif credit_score <= 10:
+            reason = "Low credit score"
+            approved = False
+        elif interest_rate < 12 and credit_score <= 50 and credit_score > 30:
+            reason = "Interest rate too low for this credit score."
+            approved = False
+        elif interest_rate < 16 and credit_score <= 30 and credit_score > 10:
+            reason = "Interest rate too low for this credit score."
+            approved = False
+        else:
+            monthly_installment = calculate_emi(loan_amount, interest_rate, tenure)
+            if monthly_installment * Loan.objects.filter(customer=customer).count() > 0.5 * customer.monthly_salary:
+                reason = "EMI exceeds 50% of monthly income"
+                approved = False
+            else:
+                approved = True
+                reason = "Loan approved successfully."
+
+        if not approved:
+            return Response({
+                "loan_id": None,
+                "customer_id": customer_id,
+                "loan_approved": False,
+                "message": reason,
+                "monthly_installment": None
+            }, status=status.HTTP_200_OK)
+
+        # Create Loan
+        loan = Loan.objects.create(
+            customer=customer,
+            loan_amount=loan_amount,
+            interest_rate=interest_rate,
+            tenure=tenure,
+            monthly_installment=monthly_installment
+        )
+
+        # Update customer's current debt
+        customer.current_debt += loan_amount
+        customer.save()
+
+        return Response({
+            "loan_id": loan.loan_id,
+            "customer_id": customer_id,
+            "loan_approved": True,
+            "message": reason,
+            "monthly_installment": monthly_installment
+        }, status=status.HTTP_201_CREATED)
+
+
+class LoanDetailView(APIView):
+    def get(self, request, loan_id):
+        try:
+            loan = Loan.objects.get(loan_id=loan_id)
+        except Loan.DoesNotExist:
+            return Response({"detail": "Loan not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = LoanDetailsSerializer(loan)
+        return Response(serializer.data)

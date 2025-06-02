@@ -23,6 +23,7 @@ class Loan(models.Model):
     emis_paid_on_time = models.IntegerField()
     start_date        = models.DateField()
     end_date          = models.DateField()
+    loan_approved     = models.BooleanField(default=False)   # Add this
 
     def __str__(self):
         return f"Loan {self.loan_id} for {self.customer.first_name}"
