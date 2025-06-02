@@ -1,0 +1,4 @@
+Django==4.2.7
+djangorestframework==3.14.0
+requests==2.32.3
+pandas==2.1.0
